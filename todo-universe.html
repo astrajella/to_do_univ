@@ -1279,8 +1279,8 @@
                         const deltaX = e.clientX - this.lastMousePos.x;
                         const deltaY = e.clientY - this.lastMousePos.y;
                         
-                        this.camera.x -= deltaX * 0.01;
-                        this.camera.y += deltaY * 0.01;
+                        this.camera.x -= deltaX * this.universeDragSpeed;
+                        this.camera.y += deltaY * this.universeDragSpeed;
                         
                         // Update all task positions when universe moves
                         this.stateManager.getAllTasks().forEach(task => {
@@ -1324,8 +1324,8 @@
                         const deltaX = e.touches[0].clientX - this.lastMousePos.x;
                         const deltaY = e.touches[0].clientY - this.lastMousePos.y;
                         
-                        this.camera.x -= deltaX * 0.01;
-                        this.camera.y += deltaY * 0.01;
+                        this.camera.x -= deltaX * this.universeDragSpeed;
+                        this.camera.y += deltaY * this.universeDragSpeed;
                         
                         // Update all task positions when universe moves
                         this.stateManager.getAllTasks().forEach(task => {

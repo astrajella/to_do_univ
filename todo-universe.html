@@ -720,6 +720,8 @@
                 this.tasks = new Map();
                 this.draggedTask = null;
                 this.dragOffset = { x: 0, y: 0 };
+                this.camera = { x: 0, y: 0, z: 5 };
+                this.zoom = 1;
             }
 
             createTaskElement(task) {
@@ -864,9 +866,9 @@
             updateTaskPosition(task) {
                 const element = this.tasks.get(task.id);
                 if (element) {
-                    // Get camera from the main app
-                    const camera = window.app.camera;
-                    const zoom = window.app.zoom;
+                    // Get camera from the main app, with fallback
+                    const camera = window.app ? window.app.camera : { x: 0, y: 0, z: 5 };
+                    const zoom = window.app ? window.app.zoom : 1;
                     
                     // Proper 3D projection with camera position and zoom
                     const worldX = task.coords.x - camera.x;
@@ -964,7 +966,7 @@
                 this.ctx.strokeRect(2, 2, this.canvas.width - 4, this.canvas.height - 4);
 
                 // Calculate view bounds based on camera and zoom
-                const viewRange = 50 / window.app.zoom; // Adjust based on zoom level
+                const viewRange = 50 / (window.app ? window.app.zoom : 1); // Adjust based on zoom level
                 const minX = camera.x - viewRange;
                 const maxX = camera.x + viewRange;
                 const minY = camera.y - viewRange;

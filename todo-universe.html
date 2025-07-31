@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>To-Do Universe</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: #000;
+            color: #fff;
+            overflow: hidden;
+            user-select: none;
+            touch-action: none;
+        }
+
+        #canvas-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+        }
+
+        #ui-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        #radar {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: 140px;
+            height: 100px;
+            background: rgba(0, 0, 0, 0.8);
+            border: 2px solid #0ff;
+            border-radius: 8px;
+            pointer-events: all;
+        }
+
+        #radar-canvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        #system-messages {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            max-width: 400px;
+            pointer-events: none;
+        }
+
+        .message {
+            background: rgba(0, 0, 0, 0.9);
+            border-left: 4px solid;
+            padding: 8px 12px;
+            margin-bottom: 8px;
+            border-radius: 4px;
+            font-size: 14px;
+            opacity: 0;
+            transform: translateX(-20px);
+            transition: all 0.3s ease;
+        }
+
+        .message.info { border-color: #0ff; }
+        .message.success { border-color: #0f0; }
+        .message.warning { border-color: #ff0; }
+        .message.error { border-color: #f0f; }
+
+        .message.visible {
+            opacity: 1;
+            transform: translateX(0);
+        }
+
+        #side-menu {
+            position: absolute;
+            top: 0;
+            right: -300px;
+            width: 300px;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.95);
+            border-left: 2px solid #0ff;
+            transition: right 0.3s ease;
+            pointer-events: all;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+        }
+
+        #side-menu.visible {
+            right: 0;
+        }
+
+        .menu-button {
+            background: transparent;
+            border: 1px solid #0ff;
+            color: #0ff;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: inherit;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .menu-button:hover {
+            background: #0ff;
+            color: #000;
+        }
+
+        #modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 100;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            pointer-events: all;
+        }
+
+        .modal-content {
+            background: #111;
+            border: 2px solid #0ff;
+            border-radius: 8px;
+            padding: 20px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .modal-input {
+            width: 100%;
+            background: #000;
+            border: 1px solid #0ff;
+            color: #fff;
+            padding: 8px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            font-family: inherit;
+        }
+
+        .modal-button {
+            background: #0ff;
+            color: #000;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: inherit;
+            margin-right: 10px;
+        }
+
+        #context-menu {
+            position: fixed;
+            background: #111;
+            border: 1px solid #0ff;
+            border-radius: 4px;
+            padding: 5px 0;
+            z-index: 50;
+            display: none;
+            pointer-events: all;
+        }
+
+        .context-item {
+            padding: 8px 15px;
+            cursor: pointer;
+            color: #fff;
+        }
+
+        .context-item:hover {
+            background: #0ff;
+            color: #000;
+        }
+
+        .task-card {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.9);
+            border: 2px solid;
+            border-radius: 8px;
+            padding: 15px;
+            min-width: 200px;
+            max-width: 300px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            z-index: 5;
+            pointer-events: all;
+        }
+
+        .task-card:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 20px currentColor;
+        }
+
+        .task-card.high { border-color: #f00; color: #f00; }
+        .task-card.medium { border-color: #ff0; color: #ff0; }
+        .task-card.low { border-color: #0f0; color: #0f0; }
+
+        .task-title {
+            font-weight: bold;
+            margin-bottom: 8px;
+            font-size: 16px;
+        }
+
+        .task-brief {
+            font-size: 12px;
+            opacity: 0.8;
+            margin-bottom: 8px;
+        }
+
+        .task-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin-bottom: 8px;
+        }
+
+        .task-tag {
+            background: currentColor;
+            color: #000;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+        }
+
+        @media (max-width: 600px) {
+            #radar {
+                width: 100px;
+                height: 70px;
+                top: 10px;
+                left: 10px;
+            }
+
+            #system-messages {
+                bottom: 10px;
+                left: 10px;
+                max-width: 300px;
+            }
+
+            #side-menu {
+                width: 250px;
+                right: -250px;
+            }
+
+            .task-card {
+                min-width: 150px;
+                max-width: 250px;
+            }
+        }
+
+        @media (max-width: 1024px) {
+            .modal-content {
+                width: 95%;
+                margin: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="canvas-container">
+        <canvas id="main-canvas"></canvas>
+    </div>
+
+    <div id="ui-overlay">
+        <div id="radar">
+            <canvas id="radar-canvas"></canvas>
+        </div>
+
+        <div id="system-messages"></div>
+
+        <div id="side-menu">
+            <button class="menu-button" id="save-state">
+                <span>💾</span> Save State
+            </button>
+            <button class="menu-button" id="time-travel">
+                <span>⏰</span> Time Travel
+            </button>
+            <button class="menu-button" id="export-json">
+                <span>📤</span> Export JSON
+            </button>
+            <button class="menu-button" id="import-json">
+                <span>📥</span> Import JSON
+            </button>
+            <button class="menu-button" id="orbit-mode">
+                <span>🔄</span> Orbit Mode
+            </button>
+            <button class="menu-button" id="reset-camera">
+                <span>🎯</span> Reset Camera
+            </button>
+        </div>
+    </div>
+
+    <div id="modal">
+        <div class="modal-content">
+            <h3>Edit Task</h3>
+            <input type="text" class="modal-input" id="modal-title" placeholder="Title">
+            <textarea class="modal-input" id="modal-brief" placeholder="Brief description" rows="3"></textarea>
+            <input type="text" class="modal-input" id="modal-links" placeholder="Links (comma-separated)">
+            <input type="text" class="modal-input" id="modal-tags" placeholder="Tags (comma-separated)">
+            <select class="modal-input" id="modal-priority">
+                <option value="low">Low Priority</option>
+                <option value="medium">Medium Priority</option>
+                <option value="high">High Priority</option>
+            </select>
+            <div style="margin-top: 15px;">
+                <button class="modal-button" id="modal-save">Save</button>
+                <button class="modal-button" id="modal-cancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="context-menu">
+        <div class="context-item" data-action="edit">Edit</div>
+        <div class="context-item" data-action="duplicate">Duplicate</div>
+        <div class="context-item" data-action="follow">Follow</div>
+        <div class="context-item" data-action="delete">Delete</div>
+    </div>
+
+    <script>
+        // Core utilities
+        class Utils {
+            static uuidv4() {
+                return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                    const r = Math.random() * 16 | 0;
+                    const v = c == 'x' ? r : (r & 0x3 | 0x8);
+                    return v.toString(16);
+                });
+            }
+
+            static hslToHex(h, s, l) {
+                l /= 100;
+                const a = s * Math.min(l, 1 - l) / 100;
+                const f = n => {
+                    const k = (n + h / 30) % 12;
+                    const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+                    return Math.round(255 * color).toString(16).padStart(2, '0');
+                };
+                return `#${f(0)}${f(8)}${f(4)}`;
+            }
+
+            static getRandomNeonColor() {
+                const hue = Math.random() * 360;
+                const saturation = 80 + Math.random() * 20;
+                const lightness = 50 + Math.random() * 20;
+                return this.hslToHex(hue, saturation, lightness);
+            }
+
+            static debounce(func, wait) {
+                let timeout;
+                return function executedFunction(...args) {
+                    const later = () => {
+                        clearTimeout(timeout);
+                        func(...args);
+                    };
+                    clearTimeout(timeout);
+                    timeout = setTimeout(later, wait);
+                };
+            }
+        }
+
+        // Task data model
+        class Task {
+            constructor(data = {}) {
+                this.id = data.id || Utils.uuidv4();
+                this.title = data.title || 'New Task';
+                this.brief = data.brief || '';
+                this.links = data.links || [];
+                this.tags = data.tags || [];
+                this.priority = data.priority || 'medium';
+                this.coords = data.coords || { x: 0, y: 0, z: 0 };
+                this.color = data.color || Utils.getRandomNeonColor();
+                this.createdAt = data.createdAt || new Date();
+                this.updatedAt = data.updatedAt || new Date();
+            }
+
+            update(data) {
+                Object.assign(this, data);
+                this.updatedAt = new Date();
+            }
+        }
+
+        // State management
+        class StateManager {
+            constructor() {
+                this.tasks = new Map();
+                this.loadFromStorage();
+            }
+
+            addTask(task) {
+                this.tasks.set(task.id, task);
+                this.saveToStorage();
+                return task;
+            }
+
+            updateTask(id, data) {
+                const task = this.tasks.get(id);
+                if (task) {
+                    task.update(data);
+                    this.saveToStorage();
+                }
+                return task;
+            }
+
+            deleteTask(id) {
+                const deleted = this.tasks.delete(id);
+                if (deleted) this.saveToStorage();
+                return deleted;
+            }
+
+            getTask(id) {
+                return this.tasks.get(id);
+            }
+
+            getAllTasks() {
+                return Array.from(this.tasks.values());
+            }
+
+            saveToStorage() {
+                try {
+                    const data = {
+                        tasks: this.getAllTasks(),
+                        timestamp: new Date().toISOString()
+                    };
+                    localStorage.setItem('todo-universe-state', JSON.stringify(data));
+                } catch (e) {
+                    console.error('Failed to save state:', e);
+                }
+            }
+
+            loadFromStorage() {
+                try {
+                    const data = localStorage.getItem('todo-universe-state');
+                    if (data) {
+                        const parsed = JSON.parse(data);
+                        this.tasks.clear();
+                        parsed.tasks.forEach(taskData => {
+                            const task = new Task(taskData);
+                            this.tasks.set(task.id, task);
+                        });
+                    }
+                } catch (e) {
+                    console.error('Failed to load state:', e);
+                }
+            }
+
+            exportJSON() {
+                return JSON.stringify({
+                    tasks: this.getAllTasks(),
+                    timestamp: new Date().toISOString()
+                }, null, 2);
+            }
+
+            importJSON(jsonData) {
+                try {
+                    const data = JSON.parse(jsonData);
+                    this.tasks.clear();
+                    data.tasks.forEach(taskData => {
+                        const task = new Task(taskData);
+                        this.tasks.set(task.id, task);
+                    });
+                    this.saveToStorage();
+                    return true;
+                } catch (e) {
+                    console.error('Failed to import JSON:', e);
+                    return false;
+                }
+            }
+        }
+
+        // System message manager
+        class MessageManager {
+            constructor() {
+                this.container = document.getElementById('system-messages');
+                this.messages = [];
+                this.maxMessages = 5;
+            }
+
+            add(type, text) {
+                const message = document.createElement('div');
+                message.className = `message ${type}`;
+                message.textContent = text;
+                
+                this.container.appendChild(message);
+                this.messages.push(message);
+
+                setTimeout(() => message.classList.add('visible'), 10);
+                this.typewriter(message, text);
+
+                if (this.messages.length > this.maxMessages) {
+                    const oldMessage = this.messages.shift();
+                    oldMessage.classList.remove('visible');
+                    setTimeout(() => oldMessage.remove(), 300);
+                }
+            }
+
+            typewriter(element, text) {
+                element.textContent = '';
+                let i = 0;
+                const speed = 60;
+                
+                const type = () => {
+                    if (i < text.length) {
+                        element.textContent += text.charAt(i);
+                        i++;
+                        setTimeout(type, speed);
+                    }
+                };
+                type();
+            }
+
+            info(text) { this.add('info', text); }
+            success(text) { this.add('success', text); }
+            warning(text) { this.add('warning', text); }
+            error(text) { this.add('error', text); }
+        }
+
+        // Task renderer
+        class TaskRenderer {
+            constructor() {
+                this.container = document.getElementById('ui-overlay');
+                this.tasks = new Map();
+            }
+
+            createTaskElement(task) {
+                const element = document.createElement('div');
+                element.className = `task-card ${task.priority}`;
+                element.dataset.taskId = task.id;
+                element.style.borderColor = task.color;
+                element.style.color = task.color;
+
+                element.innerHTML = `
+                    <div class="task-title">${task.title}</div>
+                    <div class="task-brief">${task.brief}</div>
+                    <div class="task-tags">
+                        ${task.tags.map(tag => `<span class="task-tag">${tag}</span>`).join('')}
+                    </div>
+                `;
+
+                this.setupTaskEvents(element, task);
+                return element;
+            }
+
+            setupTaskEvents(element, task) {
+                element.addEventListener('dblclick', () => this.editTask(task));
+                element.addEventListener('contextmenu', (e) => this.showContextMenu(e, task));
+                element.addEventListener('touchstart', (e) => {
+                    if (e.touches.length === 1) {
+                        setTimeout(() => {
+                            if (e.touches.length === 1) {
+                                this.showContextMenu(e, task);
+                            }
+                        }, 500);
+                    }
+                });
+            }
+
+            updateTaskPosition(task) {
+                const element = this.tasks.get(task.id);
+                if (element) {
+                    const x = (task.coords.x + 5) * 100;
+                    const y = (task.coords.y + 5) * 100;
+                    element.style.transform = `translate(${x}px, ${y}px)`;
+                }
+            }
+
+            addTask(task) {
+                const element = this.createTaskElement(task);
+                this.container.appendChild(element);
+                this.tasks.set(task.id, element);
+                this.updateTaskPosition(task);
+            }
+
+            removeTask(taskId) {
+                const element = this.tasks.get(taskId);
+                if (element) {
+                    element.remove();
+                    this.tasks.delete(taskId);
+                }
+            }
+
+            editTask(task) {
+                const modal = document.getElementById('modal');
+                const titleInput = document.getElementById('modal-title');
+                const briefInput = document.getElementById('modal-brief');
+                const linksInput = document.getElementById('modal-links');
+                const tagsInput = document.getElementById('modal-tags');
+                const prioritySelect = document.getElementById('modal-priority');
+
+                titleInput.value = task.title;
+                briefInput.value = task.brief;
+                linksInput.value = task.links.join(', ');
+                tagsInput.value = task.tags.join(', ');
+                prioritySelect.value = task.priority;
+
+                modal.style.display = 'flex';
+                modal.dataset.editingTaskId = task.id;
+            }
+
+            showContextMenu(e, task) {
+                e.preventDefault();
+                const menu = document.getElementById('context-menu');
+                menu.style.display = 'block';
+                menu.style.left = e.clientX + 'px';
+                menu.style.top = e.clientY + 'px';
+                menu.dataset.taskId = task.id;
+            }
+        }
+
+        // Radar system
+        class Radar {
+            constructor() {
+                this.canvas = document.getElementById('radar-canvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.resize();
+                window.addEventListener('resize', Utils.debounce(() => this.resize(), 150));
+            }
+
+            resize() {
+                this.canvas.width = this.canvas.offsetWidth;
+                this.canvas.height = this.canvas.offsetHeight;
+            }
+
+            render(tasks, camera) {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                
+                // Draw border
+                this.ctx.strokeStyle = '#0ff';
+                this.ctx.lineWidth = 2;
+                this.ctx.strokeRect(2, 2, this.canvas.width - 4, this.canvas.height - 4);
+
+                // Draw tasks
+                tasks.forEach(task => {
+                    const x = ((task.coords.x + 10) / 20) * this.canvas.width;
+                    const y = ((task.coords.y + 10) / 20) * this.canvas.height;
+                    
+                    this.ctx.fillStyle = task.priority === 'high' ? '#f00' : 
+                                       task.priority === 'medium' ? '#ff0' : '#0f0';
+                    this.ctx.beginPath();
+                    this.ctx.arc(x, y, 3, 0, Math.PI * 2);
+                    this.ctx.fill();
+                });
+
+                // Draw camera position
+                const camX = ((camera.x + 10) / 20) * this.canvas.width;
+                const camY = ((camera.y + 10) / 20) * this.canvas.height;
+                
+                this.ctx.strokeStyle = '#fff';
+                this.ctx.lineWidth = 1;
+                this.ctx.beginPath();
+                this.ctx.moveTo(camX - 5, camY);
+                this.ctx.lineTo(camX + 5, camY);
+                this.ctx.moveTo(camX, camY - 5);
+                this.ctx.lineTo(camX, camY + 5);
+                this.ctx.stroke();
+            }
+        }
+
+        // Main application
+        class TodoUniverse {
+            constructor() {
+                this.stateManager = new StateManager();
+                this.messageManager = new MessageManager();
+                this.taskRenderer = new TaskRenderer();
+                this.radar = new Radar();
+                
+                this.camera = { x: 0, y: 0, z: 5 };
+                this.zoom = 1;
+                this.orbitMode = false;
+                
+                this.setupEventListeners();
+                this.initializeTasks();
+                this.startRenderLoop();
+            }
+
+            setupEventListeners() {
+                // Side menu
+                document.getElementById('save-state').addEventListener('click', () => this.saveState());
+                document.getElementById('export-json').addEventListener('click', () => this.exportData());
+                document.getElementById('import-json').addEventListener('click', () => this.importData());
+                document.getElementById('orbit-mode').addEventListener('click', () => this.toggleOrbitMode());
+                document.getElementById('reset-camera').addEventListener('click', () => this.resetCamera());
+
+                // Modal
+                document.getElementById('modal-save').addEventListener('click', () => this.saveTask());
+                document.getElementById('modal-cancel').addEventListener('click', () => this.closeModal());
+
+                // Context menu
+                document.getElementById('context-menu').addEventListener('click', (e) => {
+                    const action = e.target.dataset.action;
+                    const taskId = e.target.parentElement.dataset.taskId;
+                    if (action && taskId) {
+                        this.handleContextAction(action, taskId);
+                    }
+                    document.getElementById('context-menu').style.display = 'none';
+                });
+
+                // Close context menu on outside click
+                document.addEventListener('click', () => {
+                    document.getElementById('context-menu').style.display = 'none';
+                });
+
+                // Side menu hover
+                const sideMenu = document.getElementById('side-menu');
+                let menuTimeout;
+                
+                sideMenu.addEventListener('mouseenter', () => {
+                    clearTimeout(menuTimeout);
+                    sideMenu.classList.add('visible');
+                });
+
+                sideMenu.addEventListener('mouseleave', () => {
+                    menuTimeout = setTimeout(() => {
+                        sideMenu.classList.remove('visible');
+                    }, 4000);
+                });
+
+                // Keyboard shortcuts
+                document.addEventListener('keydown', (e) => {
+                    switch(e.key.toLowerCase()) {
+                        case '1': this.filterByPriority('high'); break;
+                        case '2': this.filterByPriority('medium'); break;
+                        case '3': this.filterByPriority('low'); break;
+                        case 'escape': this.closeModal(); break;
+                    }
+                });
+            }
+
+            initializeTasks() {
+                const tasks = this.stateManager.getAllTasks();
+                if (tasks.length === 0) {
+                    const sampleTasks = [
+                        { title: 'Welcome to To-Do Universe', brief: 'Your tasks float in 3D space', priority: 'high', coords: { x: 0, y: 0, z: 0 } },
+                        { title: 'Drag to move', brief: 'Click and drag cards to reposition them', priority: 'medium', coords: { x: 2, y: 1, z: 0 } },
+                        { title: 'Right-click for menu', brief: 'Access edit, duplicate, and delete options', priority: 'low', coords: { x: -2, y: -1, z: 0 } }
+                    ];
+
+                    sampleTasks.forEach(taskData => {
+                        this.stateManager.addTask(new Task(taskData));
+                    });
+                }
+
+                this.stateManager.getAllTasks().forEach(task => {
+                    this.taskRenderer.addTask(task);
+                });
+            }
+
+            saveTask() {
+                const taskId = document.getElementById('modal').dataset.editingTaskId;
+                const task = this.stateManager.getTask(taskId);
+                
+                if (task) {
+                    const title = document.getElementById('modal-title').value;
+                    const brief = document.getElementById('modal-brief').value;
+                    const links = document.getElementById('modal-links').value.split(',').map(l => l.trim()).filter(l => l);
+                    const tags = document.getElementById('modal-tags').value.split(',').map(t => t.trim()).filter(t => t);
+                    const priority = document.getElementById('modal-priority').value;
+
+                    task.update({ title, brief, links, tags, priority });
+                    this.taskRenderer.removeTask(taskId);
+                    this.taskRenderer.addTask(task);
+                    
+                    this.messageManager.success('Task updated successfully');
+                }
+                
+                this.closeModal();
+            }
+
+            closeModal() {
+                document.getElementById('modal').style.display = 'none';
+            }
+
+            handleContextAction(action, taskId) {
+                const task = this.stateManager.getTask(taskId);
+                if (!task) return;
+
+                switch(action) {
+                    case 'edit':
+                        this.taskRenderer.editTask(task);
+                        break;
+                    case 'duplicate':
+                        const newTask = new Task({
+                            ...task,
+                            id: undefined,
+                            coords: { x: task.coords.x + 1, y: task.coords.y + 1, z: task.coords.z }
+                        });
+                        this.stateManager.addTask(newTask);
+                        this.taskRenderer.addTask(newTask);
+                        this.messageManager.success('Task duplicated');
+                        break;
+                    case 'follow':
+                        this.camera.x = task.coords.x;
+                        this.camera.y = task.coords.y;
+                        this.messageManager.info('Camera focused on task');
+                        break;
+                    case 'delete':
+                        this.stateManager.deleteTask(taskId);
+                        this.taskRenderer.removeTask(taskId);
+                        this.messageManager.success('Task deleted');
+                        break;
+                }
+            }
+
+            saveState() {
+                this.stateManager.saveToStorage();
+                this.messageManager.success('State saved to localStorage');
+            }
+
+            exportData() {
+                const data = this.stateManager.exportJSON();
+                const blob = new Blob([data], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `todo-universe-${new Date().toISOString().split('T')[0]}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+                this.messageManager.success('Data exported successfully');
+            }
+
+            importData() {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.json';
+                input.onchange = (e) => {
+                    const file = e.target.files[0];
+                    if (file) {
+                        const reader = new FileReader();
+                        reader.onload = (e) => {
+                            if (this.stateManager.importJSON(e.target.result)) {
+                                // Clear existing tasks
+                                this.stateManager.getAllTasks().forEach(task => {
+                                    this.taskRenderer.removeTask(task.id);
+                                });
+                                
+                                // Add imported tasks
+                                this.stateManager.getAllTasks().forEach(task => {
+                                    this.taskRenderer.addTask(task);
+                                });
+                                
+                                this.messageManager.success('Data imported successfully');
+                            } else {
+                                this.messageManager.error('Failed to import data');
+                            }
+                        };
+                        reader.readAsText(file);
+                    }
+                };
+                input.click();
+            }
+
+            toggleOrbitMode() {
+                this.orbitMode = !this.orbitMode;
+                const button = document.getElementById('orbit-mode');
+                button.innerHTML = this.orbitMode ? '<span>⏸️</span> Pause Orbit' : '<span>🔄</span> Orbit Mode';
+                this.messageManager.info(this.orbitMode ? 'Orbit mode activated' : 'Orbit mode deactivated');
+            }
+
+            resetCamera() {
+                this.camera = { x: 0, y: 0, z: 5 };
+                this.zoom = 1;
+                this.messageManager.info('Camera reset to origin');
+            }
+
+            filterByPriority(priority) {
+                this.messageManager.info(`Filtering by ${priority} priority`);
+                // Implementation for filtering would go here
+            }
+
+            startRenderLoop() {
+                const render = () => {
+                    this.radar.render(this.stateManager.getAllTasks(), this.camera);
+                    requestAnimationFrame(render);
+                };
+                render();
+            }
+        }
+
+        // Initialize the application
+        const app = new TodoUniverse();
+        app.messageManager.info('To-Do Universe initialized');
+        app.messageManager.success('Welcome to your cosmic task manager');
+    </script>
+</body>
+</html>

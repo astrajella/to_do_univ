@@ -27,6 +27,11 @@
             width: 100vw;
             height: 100vh;
             z-index: 1;
+            cursor: grab;
+        }
+
+        #canvas-container:active {
+            cursor: grabbing;
         }
 
         #ui-overlay {
@@ -171,6 +176,47 @@
             width: 90%;
             max-height: 80vh;
             overflow-y: auto;
+        }
+
+        #time-travel-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 100;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            pointer-events: all;
+        }
+
+        .time-travel-content {
+            background: #111;
+            border: 2px solid #0ff;
+            border-radius: 8px;
+            padding: 20px;
+            max-width: 400px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .time-entry {
+            background: #000;
+            border: 1px solid #0ff;
+            color: #fff;
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .time-entry:hover {
+            background: #0ff;
+            color: #000;
         }
 
         .modal-input {
@@ -368,6 +414,17 @@
         </div>
     </div>
 
+    <div id="time-travel-modal">
+        <div class="time-travel-content">
+            <h3>Time Travel</h3>
+            <p>Select a point in time to travel to:</p>
+            <div id="time-entries"></div>
+            <div style="margin-top: 15px;">
+                <button class="modal-button" id="time-travel-cancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <div id="context-menu">
         <div class="context-item" data-action="edit">Edit</div>
         <div class="context-item" data-action="duplicate">Duplicate</div>
@@ -438,16 +495,20 @@
             }
         }
 
-        // State management
+        // State management with time travel
         class StateManager {
             constructor() {
                 this.tasks = new Map();
+                this.savedStates = [];
+                this.currentStateIndex = -1;
                 this.loadFromStorage();
+                this.saveCurrentState();
             }
 
             addTask(task) {
                 this.tasks.set(task.id, task);
                 this.saveToStorage();
+                this.saveCurrentState();
                 return task;
             }
 
@@ -456,13 +517,17 @@
                 if (task) {
                     task.update(data);
                     this.saveToStorage();
+                    this.saveCurrentState();
                 }
                 return task;
             }
 
             deleteTask(id) {
                 const deleted = this.tasks.delete(id);
-                if (deleted) this.saveToStorage();
+                if (deleted) {
+                    this.saveToStorage();
+                    this.saveCurrentState();
+                }
                 return deleted;
             }
 
@@ -472,6 +537,50 @@
 
             getAllTasks() {
                 return Array.from(this.tasks.values());
+            }
+
+            saveCurrentState() {
+                const state = {
+                    tasks: this.getAllTasks().map(task => ({...task})),
+                    timestamp: new Date().toISOString(),
+                    description: `State saved at ${new Date().toLocaleString()}`
+                };
+                
+                // Keep only last 10 states
+                this.savedStates.push(state);
+                if (this.savedStates.length > 10) {
+                    this.savedStates.shift();
+                }
+                this.currentStateIndex = this.savedStates.length - 1;
+                
+                // Save to localStorage
+                try {
+                    localStorage.setItem('todo-universe-saved-states', JSON.stringify(this.savedStates));
+                } catch (e) {
+                    console.error('Failed to save states:', e);
+                }
+            }
+
+            loadState(index) {
+                if (index >= 0 && index < this.savedStates.length) {
+                    const state = this.savedStates[index];
+                    this.tasks.clear();
+                    state.tasks.forEach(taskData => {
+                        const task = new Task(taskData);
+                        this.tasks.set(task.id, task);
+                    });
+                    this.currentStateIndex = index;
+                    this.saveToStorage();
+                    return true;
+                }
+                return false;
+            }
+
+            getSavedStates() {
+                return this.savedStates.map((state, index) => ({
+                    ...state,
+                    index
+                }));
             }
 
             saveToStorage() {
@@ -497,6 +606,13 @@
                             this.tasks.set(task.id, task);
                         });
                     }
+                    
+                    // Load saved states
+                    const savedStatesData = localStorage.getItem('todo-universe-saved-states');
+                    if (savedStatesData) {
+                        this.savedStates = JSON.parse(savedStatesData);
+                        this.currentStateIndex = this.savedStates.length - 1;
+                    }
                 } catch (e) {
                     console.error('Failed to load state:', e);
                 }
@@ -518,6 +634,7 @@
                         this.tasks.set(task.id, task);
                     });
                     this.saveToStorage();
+                    this.saveCurrentState();
                     return true;
                 } catch (e) {
                     console.error('Failed to import JSON:', e);
@@ -573,11 +690,13 @@
             error(text) { this.add('error', text); }
         }
 
-        // Task renderer
+        // Task renderer with proper 3D positioning and dragging
         class TaskRenderer {
             constructor() {
                 this.container = document.getElementById('ui-overlay');
                 this.tasks = new Map();
+                this.draggedTask = null;
+                this.dragOffset = { x: 0, y: 0 };
             }
 
             createTaskElement(task) {
@@ -601,48 +720,62 @@
 
             setupTaskEvents(element, task) {
                 let isDragging = false;
-                let startPos = { x: 0, y: 0 };
-                let startCoords = { x: 0, y: 0 };
+                let startMousePos = { x: 0, y: 0 };
+                let startTaskPos = { x: 0, y: 0 };
 
-                element.addEventListener('mousedown', (e) => {
+                const handleMouseDown = (e) => {
                     if (e.button === 0) { // Left click only
                         isDragging = true;
-                        startPos = { x: e.clientX, y: e.clientY };
-                        startCoords = { x: task.coords.x, y: task.coords.y };
+                        this.draggedTask = task;
+                        startMousePos = { x: e.clientX, y: e.clientY };
+                        startTaskPos = { x: task.coords.x, y: task.coords.y };
+                        
+                        // Calculate offset from mouse to card center
+                        const rect = element.getBoundingClientRect();
+                        this.dragOffset = {
+                            x: e.clientX - (rect.left + rect.width / 2),
+                            y: e.clientY - (rect.top + rect.height / 2)
+                        };
+                        
                         element.classList.add('dragging');
+                        element.style.zIndex = '1000';
                         e.preventDefault();
                         e.stopPropagation();
                     }
-                });
+                };
 
-                element.addEventListener('mousemove', (e) => {
-                    if (isDragging) {
-                        const deltaX = e.clientX - startPos.x;
-                        const deltaY = e.clientY - startPos.y;
-                        
+                const handleMouseMove = (e) => {
+                    if (isDragging && this.draggedTask === task) {
                         // Convert screen coordinates to world coordinates
-                        const worldDeltaX = deltaX * 0.01;
-                        const worldDeltaY = deltaY * 0.01;
+                        const worldX = (e.clientX - window.innerWidth / 2) * 0.01;
+                        const worldY = (window.innerHeight / 2 - e.clientY) * 0.01;
                         
-                        task.coords.x = startCoords.x + worldDeltaX;
-                        task.coords.y = startCoords.y - worldDeltaY;
+                        task.coords.x = worldX;
+                        task.coords.y = worldY;
                         
                         this.updateTaskPosition(task);
                         e.preventDefault();
                         e.stopPropagation();
                     }
-                });
+                };
 
-                element.addEventListener('mouseup', () => {
-                    if (isDragging) {
+                const handleMouseUp = () => {
+                    if (isDragging && this.draggedTask === task) {
                         isDragging = false;
+                        this.draggedTask = null;
                         element.classList.remove('dragging');
+                        element.style.zIndex = '5';
+                        
                         // Save the new position
                         if (window.app && window.app.stateManager) {
                             window.app.stateManager.updateTask(task.id, { coords: task.coords });
                         }
                     }
-                });
+                };
+
+                element.addEventListener('mousedown', handleMouseDown);
+                document.addEventListener('mousemove', handleMouseMove);
+                document.addEventListener('mouseup', handleMouseUp);
 
                 element.addEventListener('dblclick', (e) => {
                     if (!isDragging) {
@@ -660,24 +793,30 @@
                 element.addEventListener('touchstart', (e) => {
                     if (e.touches.length === 1) {
                         isDragging = true;
-                        startPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-                        startCoords = { x: task.coords.x, y: task.coords.y };
+                        this.draggedTask = task;
+                        startMousePos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                        startTaskPos = { x: task.coords.x, y: task.coords.y };
+                        
+                        const rect = element.getBoundingClientRect();
+                        this.dragOffset = {
+                            x: e.touches[0].clientX - (rect.left + rect.width / 2),
+                            y: e.touches[0].clientY - (rect.top + rect.height / 2)
+                        };
+                        
                         element.classList.add('dragging');
+                        element.style.zIndex = '1000';
                         e.preventDefault();
                         e.stopPropagation();
                     }
                 });
 
-                element.addEventListener('touchmove', (e) => {
-                    if (isDragging && e.touches.length === 1) {
-                        const deltaX = e.touches[0].clientX - startPos.x;
-                        const deltaY = e.touches[0].clientY - startPos.y;
+                document.addEventListener('touchmove', (e) => {
+                    if (isDragging && this.draggedTask === task && e.touches.length === 1) {
+                        const worldX = (e.touches[0].clientX - window.innerWidth / 2) * 0.01;
+                        const worldY = (window.innerHeight / 2 - e.touches[0].clientY) * 0.01;
                         
-                        const worldDeltaX = deltaX * 0.01;
-                        const worldDeltaY = deltaY * 0.01;
-                        
-                        task.coords.x = startCoords.x + worldDeltaX;
-                        task.coords.y = startCoords.y - worldDeltaY;
+                        task.coords.x = worldX;
+                        task.coords.y = worldY;
                         
                         this.updateTaskPosition(task);
                         e.preventDefault();
@@ -685,10 +824,13 @@
                     }
                 });
 
-                element.addEventListener('touchend', () => {
-                    if (isDragging) {
+                document.addEventListener('touchend', () => {
+                    if (isDragging && this.draggedTask === task) {
                         isDragging = false;
+                        this.draggedTask = null;
                         element.classList.remove('dragging');
+                        element.style.zIndex = '5';
+                        
                         if (window.app && window.app.stateManager) {
                             window.app.stateManager.updateTask(task.id, { coords: task.coords });
                         }
@@ -699,9 +841,16 @@
             updateTaskPosition(task) {
                 const element = this.tasks.get(task.id);
                 if (element) {
-                    const x = (task.coords.x + 5) * 100;
-                    const y = (task.coords.y + 5) * 100;
-                    element.style.transform = `translate(${x}px, ${y}px)`;
+                    // Convert world coordinates to screen coordinates
+                    const screenX = (task.coords.x + window.innerWidth / 200) * 100;
+                    const screenY = (task.coords.y + window.innerHeight / 200) * 100;
+                    
+                    // Apply 3D perspective based on Z coordinate
+                    const scale = Math.max(0.3, 1 - task.coords.z * 0.1);
+                    const opacity = Math.max(0.3, 1 - task.coords.z * 0.1);
+                    
+                    element.style.transform = `translate(${screenX}px, ${screenY}px) scale(${scale})`;
+                    element.style.opacity = opacity;
                 }
             }
 
@@ -745,6 +894,12 @@
                 menu.style.left = e.clientX + 'px';
                 menu.style.top = e.clientY + 'px';
                 menu.dataset.taskId = task.id;
+            }
+
+            updateAllPositions() {
+                this.stateManager.getAllTasks().forEach(task => {
+                    this.updateTaskPosition(task);
+                });
             }
         }
 
@@ -853,7 +1008,7 @@
             }
         }
 
-        // Main application
+        // Main application with proper 3D navigation and orbital motion
         class TodoUniverse {
             constructor() {
                 this.stateManager = new StateManager();
@@ -867,10 +1022,25 @@
                 this.orbitMode = false;
                 this.isDraggingUniverse = false;
                 this.lastMousePos = { x: 0, y: 0 };
+                this.orbitData = new Map(); // Store orbital parameters for each task
                 
                 this.setupEventListeners();
                 this.initializeTasks();
                 this.startRenderLoop();
+                this.initializeOrbitData();
+            }
+
+            initializeOrbitData() {
+                this.stateManager.getAllTasks().forEach(task => {
+                    this.orbitData.set(task.id, {
+                        centerX: task.coords.x,
+                        centerY: task.coords.y,
+                        radius: Math.random() * 2 + 0.5,
+                        speed: Math.random() * 0.02 + 0.01,
+                        angle: Math.random() * Math.PI * 2,
+                        phase: Math.random() * Math.PI * 2
+                    });
+                });
             }
 
             setupEventListeners() {
@@ -882,6 +1052,7 @@
 
                 // Side menu buttons
                 document.getElementById('save-state').addEventListener('click', () => this.saveState());
+                document.getElementById('time-travel').addEventListener('click', () => this.showTimeTravel());
                 document.getElementById('export-json').addEventListener('click', () => this.exportData());
                 document.getElementById('import-json').addEventListener('click', () => this.importData());
                 document.getElementById('orbit-mode').addEventListener('click', () => this.toggleOrbitMode());
@@ -890,6 +1061,9 @@
                 // Modal
                 document.getElementById('modal-save').addEventListener('click', () => this.saveTask());
                 document.getElementById('modal-cancel').addEventListener('click', () => this.closeModal());
+
+                // Time travel modal
+                document.getElementById('time-travel-cancel').addEventListener('click', () => this.closeTimeTravel());
 
                 // Context menu
                 document.getElementById('context-menu').addEventListener('click', (e) => {
@@ -906,13 +1080,14 @@
                     document.getElementById('context-menu').style.display = 'none';
                 });
 
-                // Universe dragging
+                // Universe dragging with infinite navigation
                 const canvas = document.getElementById('main-canvas');
                 
                 canvas.addEventListener('mousedown', (e) => {
-                    if (e.target === canvas) {
+                    if (e.target === canvas && !this.taskRenderer.draggedTask) {
                         this.isDraggingUniverse = true;
                         this.lastMousePos = { x: e.clientX, y: e.clientY };
+                        canvas.style.cursor = 'grabbing';
                         e.preventDefault();
                     }
                 });
@@ -922,6 +1097,7 @@
                         const deltaX = e.clientX - this.lastMousePos.x;
                         const deltaY = e.clientY - this.lastMousePos.y;
                         
+                        // Infinite navigation - no bounds
                         this.camera.x -= deltaX * 0.01;
                         this.camera.y += deltaY * 0.01;
                         
@@ -932,17 +1108,20 @@
 
                 canvas.addEventListener('mouseup', () => {
                     this.isDraggingUniverse = false;
+                    canvas.style.cursor = 'grab';
                 });
 
+                // Proper 3D zooming
                 canvas.addEventListener('wheel', (e) => {
                     e.preventDefault();
-                    this.zoom = Math.max(0.1, Math.min(10, this.zoom - e.deltaY * 0.001));
+                    const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+                    this.zoom = Math.max(0.1, Math.min(20, this.zoom * zoomFactor));
                     this.camera.z = 5 / this.zoom;
                 });
 
                 // Touch events for mobile
                 canvas.addEventListener('touchstart', (e) => {
-                    if (e.touches.length === 1 && e.target === canvas) {
+                    if (e.touches.length === 1 && e.target === canvas && !this.taskRenderer.draggedTask) {
                         this.isDraggingUniverse = true;
                         this.lastMousePos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
                         e.preventDefault();
@@ -972,11 +1151,23 @@
                         case '1': this.filterByPriority('high'); break;
                         case '2': this.filterByPriority('medium'); break;
                         case '3': this.filterByPriority('low'); break;
-                        case 'escape': this.closeModal(); break;
+                        case 'escape': 
+                            this.closeModal(); 
+                            this.closeTimeTravel();
+                            break;
                         case 'w': this.camera.y += 0.1; break;
                         case 's': this.camera.y -= 0.1; break;
                         case 'a': this.camera.x -= 0.1; break;
                         case 'd': this.camera.x += 0.1; break;
+                        case 'q': this.camera.z += 0.1; break;
+                        case 'e': this.camera.z -= 0.1; break;
+                    }
+                });
+
+                // Add new task on double-click empty space
+                canvas.addEventListener('dblclick', (e) => {
+                    if (e.target === canvas) {
+                        this.addNewTaskAtPosition(e.clientX, e.clientY);
                     }
                 });
             }
@@ -1104,11 +1295,122 @@
                 input.click();
             }
 
+            showTimeTravel() {
+                const modal = document.getElementById('time-travel-modal');
+                const entriesContainer = document.getElementById('time-entries');
+                
+                const savedStates = this.stateManager.getSavedStates();
+                
+                if (savedStates.length === 0) {
+                    entriesContainer.innerHTML = '<p>No saved states available</p>';
+                } else {
+                    entriesContainer.innerHTML = savedStates.map(state => `
+                        <div class="time-entry" data-index="${state.index}">
+                            <strong>${state.description}</strong><br>
+                            <small>${new Date(state.timestamp).toLocaleString()}</small>
+                        </div>
+                    `).join('');
+                    
+                    // Add click handlers
+                    entriesContainer.querySelectorAll('.time-entry').forEach(entry => {
+                        entry.addEventListener('click', () => {
+                            const index = parseInt(entry.dataset.index);
+                            this.timeTravelTo(index);
+                        });
+                    });
+                }
+                
+                modal.style.display = 'flex';
+            }
+
+            closeTimeTravel() {
+                document.getElementById('time-travel-modal').style.display = 'none';
+            }
+
+            timeTravelTo(index) {
+                if (this.stateManager.loadState(index)) {
+                    // Clear existing tasks
+                    this.stateManager.getAllTasks().forEach(task => {
+                        this.taskRenderer.removeTask(task.id);
+                    });
+                    
+                    // Add tasks from the loaded state
+                    this.stateManager.getAllTasks().forEach(task => {
+                        this.taskRenderer.addTask(task);
+                    });
+                    
+                    this.initializeOrbitData();
+                    this.closeTimeTravel();
+                    this.messageManager.success('Time travel successful!');
+                } else {
+                    this.messageManager.error('Failed to load state');
+                }
+            }
+
+            addNewTaskAtPosition(screenX, screenY) {
+                // Convert screen coordinates to world coordinates
+                const worldX = (screenX - window.innerWidth / 2) * 0.01;
+                const worldY = (window.innerHeight / 2 - screenY) * 0.01;
+                const worldZ = this.camera.z * 0.1; // Use current camera depth
+                
+                const newTask = new Task({
+                    title: 'New Task',
+                    brief: 'Double-click to edit',
+                    coords: { x: worldX, y: worldY, z: worldZ },
+                    priority: 'medium'
+                });
+                
+                this.stateManager.addTask(newTask);
+                this.taskRenderer.addTask(newTask);
+                this.orbitData.set(newTask.id, {
+                    centerX: worldX,
+                    centerY: worldY,
+                    radius: Math.random() * 2 + 0.5,
+                    speed: Math.random() * 0.02 + 0.01,
+                    angle: Math.random() * Math.PI * 2,
+                    phase: Math.random() * Math.PI * 2
+                });
+                
+                this.messageManager.success('New task created');
+            }
+
             toggleOrbitMode() {
                 this.orbitMode = !this.orbitMode;
                 const button = document.getElementById('orbit-mode');
                 button.innerHTML = this.orbitMode ? '<span>⏸️</span> Pause Orbit' : '<span>🔄</span> Orbit Mode';
                 this.messageManager.info(this.orbitMode ? 'Orbit mode activated' : 'Orbit mode deactivated');
+                
+                if (this.orbitMode) {
+                    // Store current positions as orbit centers
+                    this.stateManager.getAllTasks().forEach(task => {
+                        if (!this.orbitData.has(task.id)) {
+                            this.orbitData.set(task.id, {
+                                centerX: task.coords.x,
+                                centerY: task.coords.y,
+                                radius: Math.random() * 2 + 0.5,
+                                speed: Math.random() * 0.02 + 0.01,
+                                angle: Math.random() * Math.PI * 2,
+                                phase: Math.random() * Math.PI * 2
+                            });
+                        }
+                    });
+                }
+            }
+
+            updateOrbitalMotion() {
+                if (!this.orbitMode) return;
+                
+                this.stateManager.getAllTasks().forEach(task => {
+                    const orbit = this.orbitData.get(task.id);
+                    if (orbit) {
+                        orbit.angle += orbit.speed;
+                        
+                        task.coords.x = orbit.centerX + Math.cos(orbit.angle + orbit.phase) * orbit.radius;
+                        task.coords.y = orbit.centerY + Math.sin(orbit.angle + orbit.phase) * orbit.radius;
+                        
+                        this.taskRenderer.updateTaskPosition(task);
+                    }
+                });
             }
 
             resetCamera() {
@@ -1126,6 +1428,7 @@
                 const render = () => {
                     this.starfield.render(this.camera);
                     this.radar.render(this.stateManager.getAllTasks(), this.camera);
+                    this.updateOrbitalMotion();
                     requestAnimationFrame(render);
                 };
                 render();

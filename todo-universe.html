@@ -749,25 +749,14 @@
 
                 const handleMouseMove = (e) => {
                     if (isDragging && this.draggedTask === task) {
-                        // Convert screen coordinates to world coordinates with proper 3D projection
-                        const screenX = e.clientX;
-                        const screenY = e.clientY;
+                        // Convert screen coordinates to world coordinates
+                        const worldX = (e.clientX - window.innerWidth / 2) * 0.01;
+                        const worldY = (window.innerHeight / 2 - e.clientY) * 0.01;
                         
-                        // Reverse the 3D projection to get world coordinates
-                        const camera = window.app.camera;
-                        const distance = task.coords.z - camera.z;
+                        task.coords.x = worldX;
+                        task.coords.y = worldY;
                         
-                        if (distance > 0) {
-                            const scale = distance;
-                            const worldX = (screenX - window.innerWidth / 2) / scale + camera.x;
-                            const worldY = (screenY - window.innerHeight / 2) / scale + camera.y;
-                            
-                            task.coords.x = worldX;
-                            task.coords.y = worldY;
-                            
-                            this.updateTaskPosition(task);
-                        }
-                        
+                        this.updateTaskPosition(task);
                         e.preventDefault();
                         e.stopPropagation();
                     }
@@ -826,24 +815,13 @@
 
                 document.addEventListener('touchmove', (e) => {
                     if (isDragging && this.draggedTask === task && e.touches.length === 1) {
-                        const screenX = e.touches[0].clientX;
-                        const screenY = e.touches[0].clientY;
+                        const worldX = (e.touches[0].clientX - window.innerWidth / 2) * 0.01;
+                        const worldY = (window.innerHeight / 2 - e.touches[0].clientY) * 0.01;
                         
-                        // Reverse the 3D projection to get world coordinates
-                        const camera = window.app.camera;
-                        const distance = task.coords.z - camera.z;
+                        task.coords.x = worldX;
+                        task.coords.y = worldY;
                         
-                        if (distance > 0) {
-                            const scale = distance;
-                            const worldX = (screenX - window.innerWidth / 2) / scale + camera.x;
-                            const worldY = (screenY - window.innerHeight / 2) / scale + camera.y;
-                            
-                            task.coords.x = worldX;
-                            task.coords.y = worldY;
-                            
-                            this.updateTaskPosition(task);
-                        }
-                        
+                        this.updateTaskPosition(task);
                         e.preventDefault();
                         e.stopPropagation();
                     }
@@ -866,31 +844,16 @@
             updateTaskPosition(task) {
                 const element = this.tasks.get(task.id);
                 if (element) {
-                    // Convert world coordinates to screen coordinates with proper 3D perspective
-                    const worldX = task.coords.x;
-                    const worldY = task.coords.y;
-                    const worldZ = task.coords.z;
+                    // Simple coordinate conversion for now to fix positioning
+                    const screenX = (task.coords.x + 5) * 100;
+                    const screenY = (task.coords.y + 5) * 100;
                     
-                    // Apply camera transformation
-                    const cameraX = worldX - window.app.camera.x;
-                    const cameraY = worldY - window.app.camera.y;
-                    const cameraZ = worldZ - window.app.camera.z;
+                    // Apply 3D perspective based on Z coordinate
+                    const scale = Math.max(0.3, 1 - task.coords.z * 0.1);
+                    const opacity = Math.max(0.3, 1 - task.coords.z * 0.1);
                     
-                    // 3D to 2D projection
-                    const distance = Math.max(0.1, cameraZ);
-                    const scale = 1 / distance;
-                    
-                    // Convert to screen coordinates
-                    const screenX = (cameraX * scale + window.innerWidth / 2);
-                    const screenY = (cameraY * scale + window.innerHeight / 2);
-                    
-                    // Apply size scaling based on depth
-                    const sizeScale = Math.max(0.1, Math.min(2, scale * 2));
-                    const opacity = Math.max(0.3, Math.min(1, scale * 1.5));
-                    
-                    element.style.transform = `translate(${screenX}px, ${screenY}px) scale(${sizeScale})`;
+                    element.style.transform = `translate(${screenX}px, ${screenY}px) scale(${scale})`;
                     element.style.opacity = opacity;
-                    element.style.zIndex = Math.floor(1000 - distance * 100);
                 }
             }
 
@@ -1138,14 +1101,8 @@
                         const deltaX = e.clientX - this.lastMousePos.x;
                         const deltaY = e.clientY - this.lastMousePos.y;
                         
-                        // Move camera (which moves the entire universe)
                         this.camera.x -= deltaX * 0.01;
                         this.camera.y += deltaY * 0.01;
-                        
-                        // Update all task positions to move with the universe
-                        this.stateManager.getAllTasks().forEach(task => {
-                            this.taskRenderer.updateTaskPosition(task);
-                        });
                         
                         this.lastMousePos = { x: e.clientX, y: e.clientY };
                         e.preventDefault();
@@ -1163,11 +1120,6 @@
                     const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
                     this.zoom = Math.max(0.1, Math.min(20, this.zoom * zoomFactor));
                     this.camera.z = 5 / this.zoom;
-                    
-                    // Update all task positions after zoom
-                    this.stateManager.getAllTasks().forEach(task => {
-                        this.taskRenderer.updateTaskPosition(task);
-                    });
                 });
 
                 // Touch events for mobile
@@ -1186,11 +1138,6 @@
                         
                         this.camera.x -= deltaX * 0.01;
                         this.camera.y += deltaY * 0.01;
-                        
-                        // Update all task positions to move with the universe
-                        this.stateManager.getAllTasks().forEach(task => {
-                            this.taskRenderer.updateTaskPosition(task);
-                        });
                         
                         this.lastMousePos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
                         e.preventDefault();
@@ -1211,30 +1158,12 @@
                             this.closeModal(); 
                             this.closeTimeTravel();
                             break;
-                        case 'w': 
-                            this.camera.y += 0.1; 
-                            this.updateAllTaskPositions();
-                            break;
-                        case 's': 
-                            this.camera.y -= 0.1; 
-                            this.updateAllTaskPositions();
-                            break;
-                        case 'a': 
-                            this.camera.x -= 0.1; 
-                            this.updateAllTaskPositions();
-                            break;
-                        case 'd': 
-                            this.camera.x += 0.1; 
-                            this.updateAllTaskPositions();
-                            break;
-                        case 'q': 
-                            this.camera.z += 0.1; 
-                            this.updateAllTaskPositions();
-                            break;
-                        case 'e': 
-                            this.camera.z -= 0.1; 
-                            this.updateAllTaskPositions();
-                            break;
+                        case 'w': this.camera.y += 0.1; break;
+                        case 's': this.camera.y -= 0.1; break;
+                        case 'a': this.camera.x -= 0.1; break;
+                        case 'd': this.camera.x += 0.1; break;
+                        case 'q': this.camera.z += 0.1; break;
+                        case 'e': this.camera.z -= 0.1; break;
                     }
                 });
 
@@ -1422,14 +1351,14 @@
             }
 
             addNewTaskAtCenter() {
-                // Create task at camera center with current depth
+                // Create task at center of screen
                 const newTask = new Task({
                     title: 'New Task',
                     brief: 'Double-click to edit',
                     coords: { 
-                        x: this.camera.x, 
-                        y: this.camera.y, 
-                        z: this.camera.z + 1 // Slightly in front of camera
+                        x: 0, 
+                        y: 0, 
+                        z: 0
                     },
                     priority: 'medium'
                 });
@@ -1437,8 +1366,8 @@
                 this.stateManager.addTask(newTask);
                 this.taskRenderer.addTask(newTask);
                 this.orbitData.set(newTask.id, {
-                    centerX: this.camera.x,
-                    centerY: this.camera.y,
+                    centerX: 0,
+                    centerY: 0,
                     radius: Math.random() * 2 + 0.5,
                     speed: Math.random() * 0.02 + 0.01,
                     angle: Math.random() * Math.PI * 2,
@@ -1449,18 +1378,14 @@
             }
 
             addNewTaskAtPosition(screenX, screenY) {
-                // Convert screen coordinates to world coordinates with proper 3D projection
-                const camera = this.camera;
-                const distance = 1; // Create at a fixed distance from camera
-                
-                const worldX = (screenX - window.innerWidth / 2) / distance + camera.x;
-                const worldY = (screenY - window.innerHeight / 2) / distance + camera.y;
-                const worldZ = camera.z + distance;
+                // Convert screen coordinates to world coordinates
+                const worldX = (screenX - window.innerWidth / 2) * 0.01;
+                const worldY = (window.innerHeight / 2 - screenY) * 0.01;
                 
                 const newTask = new Task({
                     title: 'New Task',
                     brief: 'Double-click to edit',
-                    coords: { x: worldX, y: worldY, z: worldZ },
+                    coords: { x: worldX, y: worldY, z: 0 },
                     priority: 'medium'
                 });
                 
@@ -1528,11 +1453,7 @@
                 // Implementation for filtering would go here
             }
 
-            updateAllTaskPositions() {
-                this.stateManager.getAllTasks().forEach(task => {
-                    this.taskRenderer.updateTaskPosition(task);
-                });
-            }
+
 
             startRenderLoop() {
                 const render = () => {

@@ -339,18 +339,16 @@
         }
 
         .task-card:hover {
-            transform: scale(1.05);
             box-shadow: 0 0 20px currentColor;
         }
 
         .task-card.dragging {
             cursor: grabbing;
             z-index: 100;
-            transform: scale(1.1);
         }
 
         .task-card.dragging:hover {
-            transform: scale(1.1);
+            /* Dragging state handled by JavaScript */
         }
 
         .task-card.high { border-color: #f00; color: #f00; }
@@ -967,7 +965,10 @@
                     const minZ = -10; // Deep
                     const maxZ = 20; // Close
                     const scaleRange = 0.6; // Scale range from 0.2 to 0.8
-                    const scale = (0.2 + (worldZ - minZ) / (maxZ - minZ) * scaleRange) * zoom;
+                    let scale = (0.2 + (worldZ - minZ) / (maxZ - minZ) * scaleRange) * zoom;
+                    
+                    // Ensure scale is always positive and reasonable
+                    scale = Math.max(0.1, Math.min(2.0, scale));
                     
                     // A simple linear mapping for opacity based on z value
                     const opacity = (worldZ - minZ) / (maxZ - minZ) * 0.7 + 0.3;
@@ -977,7 +978,8 @@
                     const screenX = window.innerWidth / 2 + worldX;
                     const screenY = window.innerHeight / 2 + worldY;
                     
-                    element.style.transform = `translate(${screenX}px, ${screenY}px) scale(${scale})`;
+                    // Apply transform with proper order: translate first, then scale
+                    element.style.transform = `translate3d(${screenX}px, ${screenY}px, 0) scale(${scale})`;
                     element.style.opacity = opacity;
                     element.style.zIndex = Math.floor(100 + worldZ); // Set z-index based on depth
                 }

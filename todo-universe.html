@@ -86,6 +86,28 @@
             transform: translateX(0);
         }
 
+        #side-menu-toggle {
+            position: absolute;
+            top: 50%;
+            right: 0;
+            transform: translateY(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            border: 2px solid #0ff;
+            border-right: none;
+            color: #0ff;
+            padding: 15px 10px;
+            cursor: pointer;
+            border-radius: 8px 0 0 8px;
+            z-index: 20;
+            pointer-events: all;
+            transition: all 0.3s ease;
+        }
+
+        #side-menu-toggle:hover {
+            background: #0ff;
+            color: #000;
+        }
+
         #side-menu {
             position: absolute;
             top: 0;
@@ -99,6 +121,7 @@
             display: flex;
             flex-direction: column;
             padding: 20px;
+            z-index: 15;
         }
 
         #side-menu.visible {
@@ -202,15 +225,26 @@
             padding: 15px;
             min-width: 200px;
             max-width: 300px;
-            cursor: pointer;
+            cursor: grab;
             transition: all 0.3s ease;
             z-index: 5;
             pointer-events: all;
+            user-select: none;
         }
 
         .task-card:hover {
             transform: scale(1.05);
             box-shadow: 0 0 20px currentColor;
+        }
+
+        .task-card.dragging {
+            cursor: grabbing;
+            z-index: 100;
+            transform: scale(1.1);
+        }
+
+        .task-card.dragging:hover {
+            transform: scale(1.1);
         }
 
         .task-card.high { border-color: #f00; color: #f00; }
@@ -288,6 +322,10 @@
         </div>
 
         <div id="system-messages"></div>
+
+        <div id="side-menu-toggle">
+            <span>⚙️</span>
+        </div>
 
         <div id="side-menu">
             <button class="menu-button" id="save-state">
@@ -562,15 +600,98 @@
             }
 
             setupTaskEvents(element, task) {
-                element.addEventListener('dblclick', () => this.editTask(task));
-                element.addEventListener('contextmenu', (e) => this.showContextMenu(e, task));
+                let isDragging = false;
+                let startPos = { x: 0, y: 0 };
+                let startCoords = { x: 0, y: 0 };
+
+                element.addEventListener('mousedown', (e) => {
+                    if (e.button === 0) { // Left click only
+                        isDragging = true;
+                        startPos = { x: e.clientX, y: e.clientY };
+                        startCoords = { x: task.coords.x, y: task.coords.y };
+                        element.classList.add('dragging');
+                        e.preventDefault();
+                        e.stopPropagation();
+                    }
+                });
+
+                element.addEventListener('mousemove', (e) => {
+                    if (isDragging) {
+                        const deltaX = e.clientX - startPos.x;
+                        const deltaY = e.clientY - startPos.y;
+                        
+                        // Convert screen coordinates to world coordinates
+                        const worldDeltaX = deltaX * 0.01;
+                        const worldDeltaY = deltaY * 0.01;
+                        
+                        task.coords.x = startCoords.x + worldDeltaX;
+                        task.coords.y = startCoords.y - worldDeltaY;
+                        
+                        this.updateTaskPosition(task);
+                        e.preventDefault();
+                        e.stopPropagation();
+                    }
+                });
+
+                element.addEventListener('mouseup', () => {
+                    if (isDragging) {
+                        isDragging = false;
+                        element.classList.remove('dragging');
+                        // Save the new position
+                        if (window.app && window.app.stateManager) {
+                            window.app.stateManager.updateTask(task.id, { coords: task.coords });
+                        }
+                    }
+                });
+
+                element.addEventListener('dblclick', (e) => {
+                    if (!isDragging) {
+                        this.editTask(task);
+                    }
+                });
+
+                element.addEventListener('contextmenu', (e) => {
+                    if (!isDragging) {
+                        this.showContextMenu(e, task);
+                    }
+                });
+
+                // Touch events for mobile
                 element.addEventListener('touchstart', (e) => {
                     if (e.touches.length === 1) {
-                        setTimeout(() => {
-                            if (e.touches.length === 1) {
-                                this.showContextMenu(e, task);
-                            }
-                        }, 500);
+                        isDragging = true;
+                        startPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                        startCoords = { x: task.coords.x, y: task.coords.y };
+                        element.classList.add('dragging');
+                        e.preventDefault();
+                        e.stopPropagation();
+                    }
+                });
+
+                element.addEventListener('touchmove', (e) => {
+                    if (isDragging && e.touches.length === 1) {
+                        const deltaX = e.touches[0].clientX - startPos.x;
+                        const deltaY = e.touches[0].clientY - startPos.y;
+                        
+                        const worldDeltaX = deltaX * 0.01;
+                        const worldDeltaY = deltaY * 0.01;
+                        
+                        task.coords.x = startCoords.x + worldDeltaX;
+                        task.coords.y = startCoords.y - worldDeltaY;
+                        
+                        this.updateTaskPosition(task);
+                        e.preventDefault();
+                        e.stopPropagation();
+                    }
+                });
+
+                element.addEventListener('touchend', () => {
+                    if (isDragging) {
+                        isDragging = false;
+                        element.classList.remove('dragging');
+                        if (window.app && window.app.stateManager) {
+                            window.app.stateManager.updateTask(task.id, { coords: task.coords });
+                        }
                     }
                 });
             }
@@ -676,6 +797,62 @@
             }
         }
 
+        // Starfield background
+        class Starfield {
+            constructor() {
+                this.canvas = document.getElementById('main-canvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.stars = [];
+                this.resize();
+                this.generateStars();
+                window.addEventListener('resize', Utils.debounce(() => this.resize(), 150));
+            }
+
+            resize() {
+                this.canvas.width = window.innerWidth * window.devicePixelRatio;
+                this.canvas.height = window.innerHeight * window.devicePixelRatio;
+                this.ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+            }
+
+            generateStars() {
+                this.stars = [];
+                const starCount = 500;
+                
+                for (let i = 0; i < starCount; i++) {
+                    this.stars.push({
+                        x: Math.random() * this.canvas.width,
+                        y: Math.random() * this.canvas.height,
+                        size: Math.random() * 2 + 0.5,
+                        brightness: Math.random() * 0.8 + 0.2,
+                        twinkle: Math.random() * Math.PI * 2
+                    });
+                }
+            }
+
+            render(camera) {
+                this.ctx.fillStyle = '#000011';
+                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+                // Parallax effect based on camera movement
+                const parallaxX = camera.x * 0.1;
+                const parallaxY = camera.y * 0.1;
+
+                this.stars.forEach(star => {
+                    const x = (star.x + parallaxX) % this.canvas.width;
+                    const y = (star.y + parallaxY) % this.canvas.height;
+                    
+                    // Twinkling effect
+                    const twinkle = Math.sin(Date.now() * 0.001 + star.twinkle) * 0.3 + 0.7;
+                    const brightness = star.brightness * twinkle;
+                    
+                    this.ctx.fillStyle = `rgba(255, 255, 255, ${brightness})`;
+                    this.ctx.beginPath();
+                    this.ctx.arc(x, y, star.size, 0, Math.PI * 2);
+                    this.ctx.fill();
+                });
+            }
+        }
+
         // Main application
         class TodoUniverse {
             constructor() {
@@ -683,10 +860,13 @@
                 this.messageManager = new MessageManager();
                 this.taskRenderer = new TaskRenderer();
                 this.radar = new Radar();
+                this.starfield = new Starfield();
                 
                 this.camera = { x: 0, y: 0, z: 5 };
                 this.zoom = 1;
                 this.orbitMode = false;
+                this.isDraggingUniverse = false;
+                this.lastMousePos = { x: 0, y: 0 };
                 
                 this.setupEventListeners();
                 this.initializeTasks();
@@ -694,7 +874,13 @@
             }
 
             setupEventListeners() {
-                // Side menu
+                // Side menu toggle
+                document.getElementById('side-menu-toggle').addEventListener('click', () => {
+                    const sideMenu = document.getElementById('side-menu');
+                    sideMenu.classList.toggle('visible');
+                });
+
+                // Side menu buttons
                 document.getElementById('save-state').addEventListener('click', () => this.saveState());
                 document.getElementById('export-json').addEventListener('click', () => this.exportData());
                 document.getElementById('import-json').addEventListener('click', () => this.importData());
@@ -720,19 +906,64 @@
                     document.getElementById('context-menu').style.display = 'none';
                 });
 
-                // Side menu hover
-                const sideMenu = document.getElementById('side-menu');
-                let menuTimeout;
+                // Universe dragging
+                const canvas = document.getElementById('main-canvas');
                 
-                sideMenu.addEventListener('mouseenter', () => {
-                    clearTimeout(menuTimeout);
-                    sideMenu.classList.add('visible');
+                canvas.addEventListener('mousedown', (e) => {
+                    if (e.target === canvas) {
+                        this.isDraggingUniverse = true;
+                        this.lastMousePos = { x: e.clientX, y: e.clientY };
+                        e.preventDefault();
+                    }
                 });
 
-                sideMenu.addEventListener('mouseleave', () => {
-                    menuTimeout = setTimeout(() => {
-                        sideMenu.classList.remove('visible');
-                    }, 4000);
+                canvas.addEventListener('mousemove', (e) => {
+                    if (this.isDraggingUniverse) {
+                        const deltaX = e.clientX - this.lastMousePos.x;
+                        const deltaY = e.clientY - this.lastMousePos.y;
+                        
+                        this.camera.x -= deltaX * 0.01;
+                        this.camera.y += deltaY * 0.01;
+                        
+                        this.lastMousePos = { x: e.clientX, y: e.clientY };
+                        e.preventDefault();
+                    }
+                });
+
+                canvas.addEventListener('mouseup', () => {
+                    this.isDraggingUniverse = false;
+                });
+
+                canvas.addEventListener('wheel', (e) => {
+                    e.preventDefault();
+                    this.zoom = Math.max(0.1, Math.min(10, this.zoom - e.deltaY * 0.001));
+                    this.camera.z = 5 / this.zoom;
+                });
+
+                // Touch events for mobile
+                canvas.addEventListener('touchstart', (e) => {
+                    if (e.touches.length === 1 && e.target === canvas) {
+                        this.isDraggingUniverse = true;
+                        this.lastMousePos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                        e.preventDefault();
+                    }
+                });
+
+                canvas.addEventListener('touchmove', (e) => {
+                    if (this.isDraggingUniverse && e.touches.length === 1) {
+                        const deltaX = e.touches[0].clientX - this.lastMousePos.x;
+                        const deltaY = e.touches[0].clientY - this.lastMousePos.y;
+                        
+                        this.camera.x -= deltaX * 0.01;
+                        this.camera.y += deltaY * 0.01;
+                        
+                        this.lastMousePos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                        e.preventDefault();
+                    }
+                });
+
+                canvas.addEventListener('touchend', () => {
+                    this.isDraggingUniverse = false;
                 });
 
                 // Keyboard shortcuts
@@ -742,6 +973,10 @@
                         case '2': this.filterByPriority('medium'); break;
                         case '3': this.filterByPriority('low'); break;
                         case 'escape': this.closeModal(); break;
+                        case 'w': this.camera.y += 0.1; break;
+                        case 's': this.camera.y -= 0.1; break;
+                        case 'a': this.camera.x -= 0.1; break;
+                        case 'd': this.camera.x += 0.1; break;
                     }
                 });
             }
@@ -889,6 +1124,7 @@
 
             startRenderLoop() {
                 const render = () => {
+                    this.starfield.render(this.camera);
                     this.radar.render(this.stateManager.getAllTasks(), this.camera);
                     requestAnimationFrame(render);
                 };
@@ -898,6 +1134,7 @@
 
         // Initialize the application
         const app = new TodoUniverse();
+        window.app = app; // Make globally available for task dragging
         app.messageManager.info('To-Do Universe initialized');
         app.messageManager.success('Welcome to your cosmic task manager');
     </script>

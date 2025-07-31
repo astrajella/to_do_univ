@@ -438,8 +438,8 @@
                 <span>✨</span> New Task
             </button>
             <div class="depth-buttons">
-                <button class="menu-button depth-btn" data-depth="-5">
-                    <span>🔽</span> Deep (-5)
+                <button class="menu-button depth-btn" data-depth="-10">
+                    <span>🔽</span> Deep (-10)
                 </button>
                 <button class="menu-button depth-btn" data-depth="0">
                     <span>➡️</span> Mid (0)
@@ -1348,7 +1348,7 @@
                         case '2': this.filterByPriority('medium'); break;
                         case '3': this.filterByPriority('low'); break;
                         case 'n': this.addNewTaskAtCenter(); break;
-                        case 'z': this.addNewTaskAtDepth(-5); break;
+                        case 'z': this.addNewTaskAtDepth(-10); break;
                         case 'x': this.addNewTaskAtDepth(0); break;
                         case 'c': this.addNewTaskAtDepth(10); break;
                         case 'v': this.addNewTaskAtDepth(20); break;
@@ -1693,9 +1693,9 @@
             }
 
             resetCamera() {
-                this.camera = { x: 0, y: 0, z: 5 };
+                this.camera = { x: 0, y: 0, z: 0 };
                 this.zoom = 1;
-                this.messageManager.info('Camera reset to origin');
+                this.messageManager.info('Camera reset to Mid level');
             }
 
             filterByPriority(priority) {

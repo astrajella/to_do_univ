@@ -544,7 +544,18 @@
 
             saveCurrentState() {
                 const state = {
-                    tasks: this.getAllTasks().map(task => ({...task})),
+                    tasks: this.getAllTasks().map(task => ({
+                        id: task.id,
+                        title: task.title,
+                        brief: task.brief,
+                        links: [...task.links],
+                        tags: [...task.tags],
+                        priority: task.priority,
+                        coords: { ...task.coords },
+                        color: task.color,
+                        createdAt: task.createdAt,
+                        updatedAt: task.updatedAt
+                    })),
                     timestamp: new Date().toISOString(),
                     description: `State saved at ${new Date().toLocaleString()}`
                 };
@@ -573,7 +584,7 @@
                         this.tasks.set(task.id, task);
                     });
                     this.currentStateIndex = index;
-                    this.saveToStorage();
+                    // Don't save to storage when loading a state - this prevents new changes
                     return true;
                 }
                 return false;
@@ -749,9 +760,9 @@
 
                 const handleMouseMove = (e) => {
                     if (isDragging && this.draggedTask === task) {
-                        // Convert screen coordinates to world coordinates
+                        // Convert screen coordinates to world coordinates with correct Y-axis
                         const worldX = (e.clientX - window.innerWidth / 2) * 0.01;
-                        const worldY = (window.innerHeight / 2 - e.clientY) * 0.01;
+                        const worldY = (e.clientY - window.innerHeight / 2) * 0.01;
                         
                         task.coords.x = worldX;
                         task.coords.y = worldY;
@@ -816,7 +827,7 @@
                 document.addEventListener('touchmove', (e) => {
                     if (isDragging && this.draggedTask === task && e.touches.length === 1) {
                         const worldX = (e.touches[0].clientX - window.innerWidth / 2) * 0.01;
-                        const worldY = (window.innerHeight / 2 - e.touches[0].clientY) * 0.01;
+                        const worldY = (e.touches[0].clientY - window.innerHeight / 2) * 0.01;
                         
                         task.coords.x = worldX;
                         task.coords.y = worldY;
@@ -1105,6 +1116,11 @@
                         this.camera.x -= deltaX * 0.01;
                         this.camera.y += deltaY * 0.01;
                         
+                        // Update all task positions when universe moves
+                        this.stateManager.getAllTasks().forEach(task => {
+                            this.taskRenderer.updateTaskPosition(task);
+                        });
+                        
                         this.lastMousePos = { x: e.clientX, y: e.clientY };
                         e.preventDefault();
                     }
@@ -1121,6 +1137,11 @@
                     const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
                     this.zoom = Math.max(0.1, Math.min(20, this.zoom * zoomFactor));
                     this.camera.z = 5 / this.zoom;
+                    
+                    // Update all task positions after zoom
+                    this.stateManager.getAllTasks().forEach(task => {
+                        this.taskRenderer.updateTaskPosition(task);
+                    });
                 });
 
                 // Touch events for mobile
@@ -1139,6 +1160,11 @@
                         
                         this.camera.x -= deltaX * 0.01;
                         this.camera.y += deltaY * 0.01;
+                        
+                        // Update all task positions when universe moves
+                        this.stateManager.getAllTasks().forEach(task => {
+                            this.taskRenderer.updateTaskPosition(task);
+                        });
                         
                         this.lastMousePos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
                         e.preventDefault();
@@ -1159,12 +1185,42 @@
                             this.closeModal(); 
                             this.closeTimeTravel();
                             break;
-                        case 'w': this.camera.y += 0.1; break;
-                        case 's': this.camera.y -= 0.1; break;
-                        case 'a': this.camera.x -= 0.1; break;
-                        case 'd': this.camera.x += 0.1; break;
-                        case 'q': this.camera.z += 0.1; break;
-                        case 'e': this.camera.z -= 0.1; break;
+                        case 'w': 
+                            this.camera.y += 0.1; 
+                            this.stateManager.getAllTasks().forEach(task => {
+                                this.taskRenderer.updateTaskPosition(task);
+                            });
+                            break;
+                        case 's': 
+                            this.camera.y -= 0.1; 
+                            this.stateManager.getAllTasks().forEach(task => {
+                                this.taskRenderer.updateTaskPosition(task);
+                            });
+                            break;
+                        case 'a': 
+                            this.camera.x -= 0.1; 
+                            this.stateManager.getAllTasks().forEach(task => {
+                                this.taskRenderer.updateTaskPosition(task);
+                            });
+                            break;
+                        case 'd': 
+                            this.camera.x += 0.1; 
+                            this.stateManager.getAllTasks().forEach(task => {
+                                this.taskRenderer.updateTaskPosition(task);
+                            });
+                            break;
+                        case 'q': 
+                            this.camera.z += 0.1; 
+                            this.stateManager.getAllTasks().forEach(task => {
+                                this.taskRenderer.updateTaskPosition(task);
+                            });
+                            break;
+                        case 'e': 
+                            this.camera.z -= 0.1; 
+                            this.stateManager.getAllTasks().forEach(task => {
+                                this.taskRenderer.updateTaskPosition(task);
+                            });
+                            break;
                     }
                 });
 
